@@ -13,7 +13,14 @@ adding more monitoring and observability components over the coming days.
 
 ## Start Prometheus
 
-From the project directory, start the stack in the background:
+Clone the repository and change into the project directory:
+
+```bash
+git clone https://github.com/vaishnavipawardottech/observability.git
+cd observability
+```
+
+Start the stack in the background:
 
 ```bash
 docker compose up -d
