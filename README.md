@@ -82,8 +82,6 @@ Node Exporter is configured as a Prometheus target in
 
 Open <http://localhost:9100/metrics> to verify that metrics are available.
 
-![Node Exporter metrics](./screenshots/node-exporter.png)
-
 Useful PromQL queries:
 
 ```promql
@@ -101,6 +99,12 @@ node_cpu_seconds_total{mode="idle"}
 rate(node_network_receive_bytes_total[5m])
 ```
 
+#### Some queries result:
+
+![node-exporter-1](./docs/node-exporter-1.jpeg)
+
+![node-exporter-2](./docs/node-exporter-2.jpeg)
+
 ### cAdvisor: container metrics
 
 cAdvisor monitors Docker container resource usage and performance. It
@@ -112,7 +116,6 @@ cAdvisor can discover containers and read their statistics.
 cAdvisor is also configured as a Prometheus target using `cadvisor:8080`.
 Open <http://localhost:8080> to view the cAdvisor interface.
 
-![cAdvisor container metrics](./screenshots/cadvisor.png)
 
 Useful PromQL queries:
 
@@ -133,6 +136,12 @@ topk(3, container_memory_usage_bytes{name!=""})
 The `{name!=""}` filter excludes aggregated entries and focuses on named
 containers.
 
+#### Some queries result
+
+![node-exporter-3](./docs/cadvisor-1.jpeg)
+
+![node-exporter-4](./docs/cadvisor-2.jpeg)
+
 ### Grafana: dashboards and visualization
 
 Grafana provides dashboards for the metrics collected by Prometheus. The
@@ -149,7 +158,9 @@ The Prometheus datasource is provisioned automatically from
 manual datasource setup is required. Grafana connects to Prometheus through
 the Docker Compose network at `http://prometheus:9090`.
 
-![Grafana dashboard](./screenshots/grafana.png)
+![Grafana-1](./docs/Grafana-1.jpeg)
+
+![Grafana-2](./docs/Grafana-2.jpeg)
 
 ## Create a dashboard
 
