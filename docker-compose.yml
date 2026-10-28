@@ -1,5 +1,5 @@
-
 services:
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
@@ -11,6 +11,121 @@ services:
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     restart: unless-stopped
+    networks:
+      - asset-tracker-network
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    restart: unless-stopped
+    networks:
+      - asset-tracker-network
+  
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    restart: unless-stopped
+    networks:
+      - asset-tracker-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=${grafyn_admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${grafyn_password}
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+    networks:
+      - asset-tracker-network
+
+  frontend:
+    image: pawarvaishnavi/asset-tracker-frontend:v4
+    container_name: asset-tracker-frontend
+    ports:
+      - "${FRONTEND_HOST_PORT}:5173"
+    restart: unless-stopped
+    depends_on:
+      - backend
+    networks:
+      - asset-tracker-network
+
+  
+
+  backend:
+    image: pawarvaishnavi/asset-tracker-backend:v4
+    container_name: asset-tracker-backend
+    ports:
+      - "${BACKEND_HOST_PORT}:${BACKEND_PORT}"
+    environment:
+      PORT: ${BACKEND_PORT}
+      DB_USER: ${POSTGRES_USER}
+      DB_HOST: ${POSTGRES_HOST}
+      DB_NAME: ${POSTGRES_DB}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_PORT: ${POSTGRES_PORT}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - asset-tracker-network
+
+  
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: asset-tracker-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "${POSTGRES_HOST_PORT}:${POSTGRES_PORT}"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/init/postgres:/docker-entrypoint-initdb.d
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - asset-tracker-network
+
 
 volumes:
+  pg_data:
   prometheus_data:
+  grafana_data:
+  
+networks:
+  asset-tracker-network:
+    driver: bridge
