@@ -62,6 +62,37 @@ services:
     networks:
       - asset-tracker-network
 
+  
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki_data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    restart: unless-stopped
+    networks:
+      - asset-tracker-network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    ports:
+      - "9080:9080"
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail_positions:/tmp
+    command: -config.file=/etc/promtail/promtail-config.yml
+    restart: unless-stopped
+    depends_on:
+      - loki
+    networks:
+      - asset-tracker-network
+
   frontend:
     image: pawarvaishnavi/asset-tracker-frontend:v4
     container_name: asset-tracker-frontend
@@ -125,6 +156,8 @@ volumes:
   pg_data:
   prometheus_data:
   grafana_data:
+  loki_data:
+  promtail_positions:
   
 networks:
   asset-tracker-network:
