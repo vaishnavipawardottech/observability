@@ -7,13 +7,16 @@ application and the host running it. The stack uses:
 - **Node Exporter** for host-level metrics
 - **cAdvisor** for Docker container metrics
 - **Grafana** for dashboards and visualization
+- **Loki** for storing and querying logs
+- **Promtail** for collecting Docker container logs
 
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) with
   Docker Compose support
 - Git
-- Ports `3000`, `8080`, `9090`, and `9100` available on the host
+- Ports `3000`, `3100`, `5000`, `5173`, `8080`, `9090`, and `9100` available
+  on the host
 
 ## Project structure
 
@@ -21,6 +24,10 @@ application and the host running it. The stack uses:
 .
 ├── docker-compose.yml
 ├── prometheus.yml
+├── loki/
+│   └── loki-config.yml
+├── promtail/
+│   └── promtail-config.yml
 ├── grafana/
 │   └── provisioning/
 │       └── datasources/
@@ -30,12 +37,12 @@ application and the host running it. The stack uses:
 
 ## Configuration
 
-Create a local `.env` file from `.env_example` and update the values where
+Create a local `.env` file from `.env.example` and update the values where
 needed. The `.env` file contains the database, application, and Grafana
 settings used by Docker Compose.
 
 ```bash
-copy .env_example .env
+copy .env.example .env
 ```
 
 Do not commit `.env` because it can contain passwords and application secrets.
@@ -47,7 +54,7 @@ Clone the repository and change into the project directory:
 ```bash
 git clone https://github.com/vaishnavipawardottech/observability.git
 cd observability
-copy .env_example .env
+copy .env.example .env
 ```
 
 Start all services in the background:
@@ -70,6 +77,8 @@ docker compose ps
 | Node Exporter | <http://localhost:9100/metrics> | Exposes host metrics |
 | cAdvisor | <http://localhost:8080> | Shows Docker container metrics |
 | Grafana | <http://localhost:3000> | Visualizes metrics in dashboards |
+| Loki | <http://localhost:3100> | Stores and queries logs |
+| Promtail | <http://localhost:9080> | Collects Docker container logs |
 
 ### Node Exporter: host metrics
 
@@ -153,14 +162,91 @@ Open <http://localhost:3000> and sign in with the values configured in `.env`:
 - Username: `grafyn_admin`
 - Password: `grafyn_password`
 
-The Prometheus datasource is provisioned automatically from
+The Prometheus and Loki datasources are provisioned automatically from
 [`datasources.yml`](./grafana/provisioning/datasources/datasources.yml), so no
-manual datasource setup is required. Grafana connects to Prometheus through
-the Docker Compose network at `http://prometheus:9090`.
+manual datasource setup is required. Grafana connects to Prometheus at
+`http://prometheus:9090` and Loki at `http://loki:3100` through the Docker
+Compose network.
 
 ![Grafana-1](./docs/Grafana-1.jpeg)
 
 ![Grafana-2](./docs/Grafana-2.jpeg)
+
+### Loki and Promtail: container logs
+
+Loki stores logs, while Promtail reads Docker's JSON log files and sends them
+to Loki. Their configuration files are
+[`loki/loki-config.yml`](./loki/loki-config.yml) and
+[`promtail/promtail-config.yml`](./promtail/promtail-config.yml).
+
+Loki stores data in the `loki_data` volume. Promtail stores its reading
+position in the `promtail_positions` volume, so it can continue from the
+correct place after a restart.
+
+Start or restart the logging services:
+
+```bash
+docker compose up -d loki promtail
+```
+
+Verify that Loki is ready:
+
+```bash
+curl http://localhost:3100/ready
+```
+
+The response should be `ready`. Generate some application logs if needed:
+
+```bash
+curl http://localhost:5173
+```
+
+The Promtail configuration labels these logs with `job="docker"`. Open
+**Grafana > Explore**, select **Loki**, and try these LogQL queries:
+
+```logql
+# Show all Docker container logs
+{job="docker"}
+
+# Show lines containing an error
+{job="docker"} |= "error"
+
+# Exclude health-check messages
+{job="docker"} != "health"
+
+# Find HTTP 4xx and 5xx status codes
+{job="docker"} |~ "status=[45]\\d{2}"
+
+# Count log lines over the last five minutes
+count_over_time({job="docker"}[5m])
+```
+
+For the exercise, select **Last 1 hour** in Explore and use these queries:
+
+```logql
+# Find error logs
+{job="docker"} |= "error"
+
+# Count error lines per minute
+count_over_time({job="docker"} |= "error" [1m])
+```
+
+### Correlate metrics and logs
+
+You can view metrics and logs together in Grafana:
+
+1. Open the dashboard created above and add a new panel.
+2. Select **Loki** as the datasource and use `{job="docker"}`.
+3. Choose the **Logs** visualization and title the panel **Container Logs**.
+4. In **Explore**, use split view to compare a Prometheus query on one side
+   with the Loki query `{job="docker"}` on the other.
+
+For example, compare container CPU usage with the logs produced at the same
+time:
+
+```promql
+rate(container_cpu_usage_seconds_total{name!=""}[5m])
+```
 
 ## Create a dashboard
 
@@ -246,8 +332,11 @@ docker compose logs -f prometheus
 docker compose logs -f node-exporter
 docker compose logs -f cadvisor
 docker compose logs -f grafana
+docker compose logs -f loki
+docker compose logs -f promtail
 ```
 
 If a target is not **UP**, confirm that all services are running with
 `docker compose ps` and that the target uses the Compose service name rather
-than `localhost`.
+than `localhost`. If no logs appear in Grafana, check the Loki and Promtail
+logs and confirm that Docker container log files are available to Promtail.
