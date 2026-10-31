@@ -1,0 +1,51 @@
+groups:
+  - name: observability-alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: |
+          100 * (1 - avg by (instance) (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          )) > 80
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for more than 2 minutes."
+
+      - alert: HighMemoryUsage
+        expr: |
+          100 * (
+            1 - node_memory_MemAvailable_bytes /
+            node_memory_MemTotal_bytes
+          ) > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% for more than 2 minutes."
+
+      - alert: TargetDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target is down"
+          description: "A monitored target has been unreachable for 1 minute."
+
+      - alert: HighDiskUsage
+        expr: |
+          100 * (
+            1 -
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay"}
+          ) > 85
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage detected"
+          description: "Filesystem usage is above 85% for more than 2 minutes."
