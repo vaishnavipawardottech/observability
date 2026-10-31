@@ -9,14 +9,15 @@ application and the host running it. The stack uses:
 - **Grafana** for dashboards and visualization
 - **Loki** for storing and querying logs
 - **Promtail** for collecting Docker container logs
+- **OpenTelemetry Collector** for receiving and exporting telemetry
 
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) with
   Docker Compose support
 - Git
-- Ports `3000`, `3100`, `5000`, `5173`, `8080`, `9090`, and `9100` available
-  on the host
+- Ports `3000`, `3100`, `4317`, `4318`, `5000`, `5173`, `8080`, `8889`,
+  `9090`, and `9100` available on the host
 
 ## Project structure
 
@@ -24,10 +25,13 @@ application and the host running it. The stack uses:
 .
 ├── docker-compose.yml
 ├── prometheus.yml
+├── alert-rules.yml
 ├── loki/
 │   └── loki-config.yml
 ├── promtail/
 │   └── promtail-config.yml
+├── otel-collector/
+│   └── otel-collector-config.yml
 ├── grafana/
 │   └── provisioning/
 │       └── datasources/
@@ -79,6 +83,7 @@ docker compose ps
 | Grafana | <http://localhost:3000> | Visualizes metrics in dashboards |
 | Loki | <http://localhost:3100> | Stores and queries logs |
 | Promtail | <http://localhost:9080> | Collects Docker container logs |
+| OpenTelemetry Collector | <http://localhost:4318> | Receives OTLP telemetry |
 
 ### Node Exporter: host metrics
 
@@ -248,6 +253,104 @@ time:
 rate(container_cpu_usage_seconds_total{name!=""}[5m])
 ```
 
+### OpenTelemetry: telemetry collection
+
+OpenTelemetry (OTEL) is a vendor-neutral framework for generating, collecting,
+and exporting metrics, logs, and traces. It is not a storage backend. The
+OpenTelemetry Collector receives telemetry, processes it in batches, and
+exports it to the systems that store or visualize it.
+
+The collector configuration is in
+[`otel-collector/otel-collector-config.yml`](./otel-collector/otel-collector-config.yml):
+
+- OTLP over gRPC is available on port `4317`.
+- OTLP over HTTP is available on port `4318`.
+- OTEL metrics are exported in Prometheus format on port `8889`.
+- Traces and logs are printed by the debug exporter. They are not persisted
+  until a backend such as Jaeger or Grafana Tempo is added.
+
+The collector receives data through **receivers**, transforms it through
+**processors**, and sends it through **exporters**. A distributed trace
+represents one request across services; each step is a span with trace and
+span IDs, timing, and attributes.
+
+Start the collector with the rest of the stack:
+
+```bash
+docker compose up -d otel-collector
+```
+
+Confirm that the collector is running:
+
+```bash
+docker compose logs otel-collector
+```
+
+Prometheus scrapes the collector's metrics endpoint as the `otel-collector`
+target. Check **Prometheus > Status > Targets** and confirm that it is **UP**.
+
+#### Send test OTLP telemetry
+
+The repository includes [`otel-test.py`](./otel-test.py), which sends one test
+trace and a `test_requests_total` metric to the collector over OTLP/gRPC.
+Install its Python packages, then run it from the repository root:
+
+```bash
+pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-grpc
+python otel-test.py
+```
+
+Check the exported trace in the collector output:
+
+```bash
+docker compose logs otel-collector
+```
+
+Then query the metric in Prometheus:
+
+```promql
+test_requests_total
+```
+
+You can also send telemetry directly to the OTLP/HTTP endpoint at
+`http://localhost:4318/v1/traces` or
+`http://localhost:4318/v1/metrics`.
+
+### Prometheus alerting
+
+Prometheus loads the rules in
+[`alert-rules.yml`](./alert-rules.yml). The rules detect high CPU usage, high
+memory usage, high disk usage, and unavailable scrape targets.
+
+To view the rules and their current state:
+
+1. Open <http://localhost:9090>.
+2. Select **Alerts** or go to **Status > Rules**.
+3. Check whether each alert is **inactive**, **pending**, or **firing**.
+
+Prometheus evaluates the rules every 15 seconds. The `for` value in each rule
+sets how long its condition must remain true before the alert fires, which
+helps avoid short-lived spikes.
+
+Grafana can create additional dashboard alerts from Prometheus queries. Open
+**Alerting > Alert rules > New alert rule**, choose a Prometheus query, set a
+condition and evaluation interval, and configure a contact point such as
+email or Slack.
+
+## Observability architecture
+
+The stack now covers metrics, logs, and traces:
+
+```text
+Node Exporter ──┐
+cAdvisor ───────┼──> Prometheus ──> Grafana dashboards and alerts
+OTEL Collector ─┘
+
+Docker containers ──> Promtail ──> Loki ──> Grafana Explore and dashboards
+
+Applications or OTLP clients ──> OTEL Collector ──> debug output
+```
+
 ## Create a dashboard
 
 To create a simple overview dashboard:
@@ -302,7 +405,8 @@ Use a Stat visualization with the title **Disk Usage %**.
 
 1. Open <http://localhost:9090>.
 2. Go to **Status > Targets**.
-3. Confirm that `prometheus`, `node-exporter`, and `cadvisor` are **UP**.
+3. Confirm that `prometheus`, `node-exporter`, `cadvisor`, and
+   `otel-collector` are **UP**.
 4. Open **Graph** and run a PromQL query.
 
 Prometheus scrapes the configured targets every 15 seconds. The target names
@@ -334,6 +438,7 @@ docker compose logs -f cadvisor
 docker compose logs -f grafana
 docker compose logs -f loki
 docker compose logs -f promtail
+docker compose logs -f otel-collector
 ```
 
 If a target is not **UP**, confirm that all services are running with
