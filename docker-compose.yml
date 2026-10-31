@@ -8,6 +8,7 @@ services:
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data:/prometheus
+      - ./alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     restart: unless-stopped
@@ -90,6 +91,21 @@ services:
     restart: unless-stopped
     depends_on:
       - loki
+    networks:
+      - asset-tracker-network
+
+  otel-collector:
+    image: otel/opentelemetry-collector:latest
+    container_name: otel-collector
+    command:
+      - "--config=/etc/otelcol/config.yaml"
+    volumes:
+      - ./otel-collector/otel-collector-config.yml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    restart: unless-stopped
     networks:
       - asset-tracker-network
 
